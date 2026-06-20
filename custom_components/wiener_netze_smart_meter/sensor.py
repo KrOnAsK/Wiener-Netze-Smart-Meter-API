@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
@@ -27,11 +21,15 @@ async def async_setup_entry(
 
 
 class DailyEnergySensor(CoordinatorEntity[WNSmartMeterCoordinator], SensorEntity):
+    # Informational only: no state_class, so HA does not generate long-term
+    # statistics from it and it is not offered on the Energy dashboard. The
+    # time-accurate source is the hourly external statistics in the coordinator.
+    # The value is the latest available daily total; see the reading_date
+    # attribute for the day it actually belongs to.
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_has_entity_name = True
-    _attr_name = "Daily energy"
+    _attr_name = "Latest daily energy"
 
     def __init__(self, coordinator: WNSmartMeterCoordinator, zaehlpunkt: str) -> None:
         super().__init__(coordinator)
@@ -52,11 +50,3 @@ class DailyEnergySensor(CoordinatorEntity[WNSmartMeterCoordinator], SensorEntity
     def extra_state_attributes(self) -> dict[str, str]:
         reading = self.coordinator.data.get(self._zaehlpunkt)
         return {"reading_date": reading.reading_date} if reading else {}
-
-    @property
-    def last_reset(self):
-        reading = self.coordinator.data.get(self._zaehlpunkt)
-        if not reading:
-            return None
-        day = datetime.strptime(reading.reading_date, "%Y-%m-%d")
-        return day - timedelta(days=1)
