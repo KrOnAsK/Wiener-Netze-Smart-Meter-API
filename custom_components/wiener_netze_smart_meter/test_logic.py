@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
-from logic import latest_daily_reading
+from logic import bucket_hourly, latest_daily_reading
 
 
 class StubClient:
@@ -48,8 +48,29 @@ def test_uses_lookback_window():
     assert (zaehlpunkt, von, bis) == ("AT001", "2026-06-14", "2026-06-19")
 
 
+def test_bucket_hourly_sums_quarters_into_hours():
+    messwerte = [
+        {"messwert": 10, "zeitVon": "2026-06-18T08:00:00.000Z"},
+        {"messwert": 20, "zeitVon": "2026-06-18T08:15:00.000Z"},
+        {"messwert": 30, "zeitVon": "2026-06-18T08:30:00.000Z"},
+        {"messwert": 40, "zeitVon": "2026-06-18T08:45:00.000Z"},
+        {"messwert": 5, "zeitVon": "2026-06-18T09:00:00.000Z"},
+    ]
+    buckets = bucket_hourly(messwerte)
+    assert buckets == [
+        (datetime(2026, 6, 18, 8, tzinfo=timezone.utc), 100),
+        (datetime(2026, 6, 18, 9, tzinfo=timezone.utc), 5),
+    ]
+
+
+def test_bucket_hourly_empty():
+    assert bucket_hourly([]) == []
+
+
 if __name__ == "__main__":
     test_returns_latest_messwert()
     test_returns_none_when_no_data()
     test_uses_lookback_window()
+    test_bucket_hourly_sums_quarters_into_hours()
+    test_bucket_hourly_empty()
     print("ok")
