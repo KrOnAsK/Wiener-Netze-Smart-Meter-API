@@ -144,28 +144,39 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
         if not price_entity:
             return
 
-        metadata = self._cost_metadata(zaehlpunkt)
-        total, start_after = await self._last_sum(metadata["statistic_id"])
-        window_start = start_after or (
-            datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)
-        )
-        von = window_start.strftime("%Y-%m-%d")
-        bis = datetime.now().strftime("%Y-%m-%d")
+        try:
+            metadata = self._cost_metadata(zaehlpunkt)
+            total, start_after = await self._last_sum(metadata["statistic_id"])
+            window_start = start_after or (
+                datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)
+            )
+            von = window_start.strftime("%Y-%m-%d")
+            bis = datetime.now().strftime("%Y-%m-%d")
 
-        messwerte = await self.hass.async_add_executor_job(
-            quarter_hour_messwerte, self.client, zaehlpunkt, von, bis
-        )
-        energy_buckets = bucket_hourly(messwerte)
-        price_map = await self._build_price_map(
-            price_entity, window_start, datetime.now(timezone.utc)
-        )
+            messwerte = await self.hass.async_add_executor_job(
+                quarter_hour_messwerte, self.client, zaehlpunkt, von, bis
+            )
+            energy_buckets = bucket_hourly(messwerte)
+            price_map = await self._build_price_map(
+                price_entity, window_start, datetime.now(timezone.utc)
+            )
 
-        rows = compute_hourly_cost(
-            energy_buckets, price_map, start_after=start_after, starting_total=total
-        )
-        if rows:
-            stats = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
-            async_add_external_statistics(self.hass, metadata, stats)
+            rows = compute_hourly_cost(
+                energy_buckets, price_map, start_after=start_after, starting_total=total
+            )
+            _LOGGER.debug(
+                "cost(update) %s: energy_hours=%d price_hours=%d rows=%d entity=%s",
+                zaehlpunkt,
+                len(energy_buckets),
+                len(price_map),
+                len(rows),
+                price_entity,
+            )
+            if rows:
+                stats = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
+                async_add_external_statistics(self.hass, metadata, stats)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Cost import failed for %s", zaehlpunkt)
 
     # --- full history (on-demand service) ---
 
@@ -199,15 +210,28 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
 
             price_entity = self.entry.options.get(CONF_PRICE_ENTITY)
             if price_entity:
-                price_map = await self._build_price_map(
-                    price_entity, buckets[0][0], datetime.now(timezone.utc)
-                )
-                rows = compute_hourly_cost(buckets, price_map, starting_total=0.0)
-                if rows:
-                    stats = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
-                    async_add_external_statistics(
-                        self.hass, self._cost_metadata(zaehlpunkt), stats
+                try:
+                    price_map = await self._build_price_map(
+                        price_entity, buckets[0][0], datetime.now(timezone.utc)
                     )
+                    rows = compute_hourly_cost(buckets, price_map, starting_total=0.0)
+                    _LOGGER.debug(
+                        "cost(full) %s: energy_hours=%d price_hours=%d rows=%d entity=%s",
+                        zaehlpunkt,
+                        len(buckets),
+                        len(price_map),
+                        len(rows),
+                        price_entity,
+                    )
+                    if rows:
+                        stats = [
+                            StatisticData(start=h, state=c, sum=s) for h, c, s in rows
+                        ]
+                        async_add_external_statistics(
+                            self.hass, self._cost_metadata(zaehlpunkt), stats
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.exception("Full-history cost import failed for %s", zaehlpunkt)
             _LOGGER.info("Full history import done for %s", zaehlpunkt)
 
     # --- price lookup ---
