@@ -3,12 +3,27 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
+)
 from wiener_netze_smart_meter_api import WNAPIClient
 from wiener_netze_smart_meter_api.exceptions import WNAPIAuthenticationError
 
-from .const import CONF_API_KEY, CONF_CLIENT_ID, CONF_CLIENT_SECRET, DOMAIN
+from .const import (
+    CONF_API_KEY,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_PRICE_ENTITY,
+    DOMAIN,
+)
 
 STEP_USER_SCHEMA = vol.Schema(
     {
@@ -26,6 +41,11 @@ def _validate(client_id: str, client_secret: str, api_key: str) -> None:
 
 class WNSmartMeterConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return WNSmartMeterOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -54,3 +74,24 @@ class WNSmartMeterConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
         )
+
+
+class WNSmartMeterOptionsFlow(OptionsFlow):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        if user_input is not None:
+            # An empty selection disables cost tracking again.
+            cleaned = {k: v for k, v in user_input.items() if v}
+            return self.async_create_entry(title="", data=cleaned)
+
+        current = self.config_entry.options.get(CONF_PRICE_ENTITY, "")
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_PRICE_ENTITY,
+                    description={"suggested_value": current} if current else {},
+                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

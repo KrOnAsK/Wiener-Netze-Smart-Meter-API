@@ -8,6 +8,7 @@ from homeassistant.components.recorder.models import StatisticData, StatisticMet
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
+    statistics_during_period,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
@@ -16,11 +17,19 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from wiener_netze_smart_meter_api import WNAPIClient
 from wiener_netze_smart_meter_api.exceptions import WNAPIAuthenticationError
 
-from .const import BACKFILL_DAYS, DOMAIN, UPDATE_INTERVAL_HOURS
+from .const import (
+    BACKFILL_DAYS,
+    CONF_PRICE_ENTITY,
+    COST_CURRENCY,
+    DOMAIN,
+    UPDATE_INTERVAL_HOURS,
+)
 from .logic import (
     MeterReading,
     bucket_hourly,
+    compute_hourly_cost,
     latest_daily_reading,
+    parse_price_data,
     quarter_hour_messwerte,
 )
 
@@ -46,6 +55,7 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
 
         for zaehlpunkt in readings:
             await self._import_hourly_statistics(zaehlpunkt)
+            await self._import_cost_statistics(zaehlpunkt)
         return readings
 
     def _fetch(self) -> dict[str, MeterReading]:
@@ -104,3 +114,84 @@ class WNSmartMeterCoordinator(DataUpdateCoordinator[dict[str, MeterReading]]):
             unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         )
         async_add_external_statistics(self.hass, metadata, statistics)
+
+    async def _import_cost_statistics(self, zaehlpunkt: str) -> None:
+        price_entity = self.entry.options.get(CONF_PRICE_ENTITY)
+        if not price_entity:
+            return
+
+        statistic_id = f"{DOMAIN}:{zaehlpunkt.lower()}_hourly_cost"
+        last = await get_instance(self.hass).async_add_executor_job(
+            get_last_statistics, self.hass, 1, statistic_id, True, {"sum"}
+        )
+        if last.get(statistic_id):
+            total = last[statistic_id][0]["sum"]
+            start_after = datetime.fromtimestamp(
+                last[statistic_id][0]["start"], tz=timezone.utc
+            )
+            window_start = start_after
+        else:
+            total = 0.0
+            start_after = None
+            window_start = datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)
+        von = window_start.strftime("%Y-%m-%d")
+        bis = datetime.now().strftime("%Y-%m-%d")
+
+        messwerte = await self.hass.async_add_executor_job(
+            quarter_hour_messwerte, self.client, zaehlpunkt, von, bis
+        )
+        energy_buckets = bucket_hourly(messwerte)
+        price_map = await self._build_price_map(
+            price_entity, window_start, datetime.now(timezone.utc)
+        )
+
+        rows = compute_hourly_cost(
+            energy_buckets, price_map, start_after=start_after, starting_total=total
+        )
+        if not rows:
+            return
+
+        statistics = [StatisticData(start=h, state=c, sum=s) for h, c, s in rows]
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name=f"Smart meter {zaehlpunkt[-6:]} hourly cost",
+            source=DOMAIN,
+            statistic_id=statistic_id,
+            unit_of_measurement=COST_CURRENCY,
+        )
+        async_add_external_statistics(self.hass, metadata, statistics)
+
+    async def _build_price_map(
+        self, price_entity: str, start_dt: datetime, end_dt: datetime
+    ) -> dict[datetime, float]:
+        """Hour-start (UTC) -> price/kWh, from the price entity's hourly stats,
+        overlaid with its live forecast attribute for the most recent hours."""
+        prices: dict[datetime, float] = {}
+
+        stats = await get_instance(self.hass).async_add_executor_job(
+            statistics_during_period,
+            self.hass,
+            start_dt,
+            end_dt,
+            {price_entity},
+            "hour",
+            None,
+            {"mean"},
+        )
+        for row in stats.get(price_entity, []):
+            if row.get("mean") is None:
+                continue
+            raw = row["start"]
+            start = (
+                raw
+                if isinstance(raw, datetime)
+                else datetime.fromtimestamp(raw, tz=timezone.utc)
+            )
+            hour = start.replace(minute=0, second=0, microsecond=0)
+            prices[hour] = row["mean"]
+
+        state = self.hass.states.get(price_entity)
+        if state:
+            prices.update(parse_price_data(state.attributes.get("data") or []))
+        return prices

@@ -16,5 +16,16 @@
     "abort": {
       "already_configured": "This account is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cost tracking",
+        "description": "Optionally select a price sensor giving the all-in price per kWh (e.g. the EPEX Spot total price sensor). Hourly cost statistics will be computed and can be added to the Energy dashboard. Leave empty to disable.",
+        "data": {
+          "price_entity_id": "Price sensor"
+        }
+      }
+    }
   }
 }
