@@ -45,7 +45,7 @@ You need three values from Wiener Stadtwerke / Wiener Netze: a **client ID**, a
 ## Installation
 
 1. In HACS, open the menu (⋮) → **Custom repositories**.
-2. Add `https://github.com/KrOnAsK/Wiener-Netze-Smart-Meter-API` with category **Integration**.
+2. Add `https://github.com/KrOnAsK/Wiener-Netze-Smart-Meter-Integration` with category **Integration**.
 3. Install **Wiener Netze Smart Meter**, then restart Home Assistant.
 
 ## Configuration
