@@ -12,7 +12,7 @@ captchas, rate limiting, or website changes.
 
 ## Table of Contents
 
-- [Requirements](#requirements)
+- [Getting your API credentials](#getting-your-api-credentials)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [What you get](#what-you-get)
@@ -21,17 +21,26 @@ captchas, rate limiting, or website changes.
 - [Notes & limitations](#notes--limitations)
 - [Credits & License](#credits--license)
 
-## Requirements
+## Getting your API credentials
 
-You need API credentials from the Wiener Stadtwerke developer portal:
-**client ID**, **client secret**, and **API key**. The steps to obtain them
-(creating an application, linking it to your Smart Meter portal user, etc.) are
-documented in the
-[upstream API project's README](https://github.com/tschoerk/Wiener-Netze-Smart-Meter-API#firststeps).
+You need three values from Wiener Stadtwerke / Wiener Netze: a **client ID**, a
+**client secret**, and an **API key**. These steps mirror the
+[upstream API project](https://github.com/tschoerk/Wiener-Netze-Smart-Meter-API#firststeps):
 
-> [!NOTE]
-> Linking the application to your Smart Meter portal user usually takes 1–2
-> weeks, as it requires a manual approval e-mail to the portal support.
+1. Create an account at the
+   [Wiener Stadtwerke Developer Portal](https://api-portal.wienerstadtwerke.at/).
+2. [Create an application](https://api-portal.wienerstadtwerke.at/portal/applications/create)
+   for the **WN_SMART_METER_API**.
+3. When the application is approved you will get an e-mail from the API Developer
+   Portal. The **API key** is then found in the details of the newly created
+   [application](https://api-portal.wienerstadtwerke.at/portal/applications).
+4. Write an e-mail to the
+   [Smart Meter Portal Support](mailto:support.sm-portal@wienit.at) to connect
+   the application with your Smart Meter Portal user. It usually takes **1–2
+   weeks** to get a response.
+5. Afterwards the **client ID** and **client secret** can be found in the
+   [settings](https://smartmeter-business.wienernetze.at/einstellungen) of the
+   Smart Meter Business portal.
 
 ## Installation
 
@@ -77,6 +86,14 @@ This matches each hour's energy to that same hour's price, which is more
 accurate than Home Assistant's single current-price model. The price per hour is
 read from the price sensor's hourly statistics (for backfilled history),
 overlaid with its live forecast attribute for recent hours.
+
+To verify it is working, go to **Developer Tools → Statistics** and search for
+`hourly_cost`. The `wiener_netze_smart_meter:<meter>_hourly_cost` entry should
+appear (unit €, no issue). Add it to a **Statistics Graph** card to see the
+per-hour cost, and sanity-check a single hour: `cost ≈ hourly kWh × price/kWh`
+for that hour. If it is missing, make sure the price sensor is selected in the
+integration's **Configure** dialog and that it has price history covering the
+hours you imported.
 
 ## Services
 
